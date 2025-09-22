@@ -3,3 +3,6 @@ build
 .venv
 benchmark_results.csv
 benchmark_plots
+*.csv
+__pycache__
+.gitignore

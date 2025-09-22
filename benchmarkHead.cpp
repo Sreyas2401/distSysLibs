@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <algorithm>
 #include <numeric>
+#include <sstream>
+#include <filesystem>
 
 #include <grpcpp/grpcpp.h>
 #include "build/benchmark.pb.h"
@@ -26,6 +28,7 @@ struct LatencyMeasurement {
     bool success;
     int64_t requestTimestamp;
     int64_t responseTimestamp;
+    std::string pattern;  // Track which pattern was used
 };
 
 class BenchmarkClient {
@@ -80,20 +83,31 @@ private:
 
 class BenchmarkHead {
 public:
-    BenchmarkHead(const std::string& workerAddress) {
-        auto channel = grpc::CreateChannel(workerAddress, grpc::InsecureChannelCredentials());
-        client_ = std::make_unique<BenchmarkClient>(channel);
-        workerAddress_ = workerAddress;
-        std::cout << "Connected to worker: " << workerAddress << std::endl;
+    BenchmarkHead(const std::vector<std::string>& workerAddresses, const std::string& pattern = "direct") 
+        : pattern_(pattern) {
+        for (const auto& address : workerAddresses) {
+            auto channel = grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
+            clients_.push_back(std::make_unique<BenchmarkClient>(channel));
+            workerAddresses_.push_back(address);
+        }
+        std::cout << "Connected to " << clients_.size() << " workers using " << pattern_ << " pattern" << std::endl;
+        for (const auto& addr : workerAddresses_) {
+            std::cout << "  Worker: " << addr << std::endl;
+        }
     }
 
     void RunLatencyBenchmark(int minSize = 16, int maxSize = 8192, int increment = 16, int samplesPerSize = 100) {
-        std::cout << "\n=== Starting Latency Benchmark ===" << std::endl;
+        std::cout << "\n=== Starting Communication Latency Benchmark ===" << std::endl;
+        std::cout << "Pattern: " << GetPatternDescription() << std::endl;
         std::cout << "Payload size range: " << minSize << " to " << maxSize << " bytes" << std::endl;
         std::cout << "Increment: " << increment << " bytes" << std::endl;
         std::cout << "Samples per size: " << samplesPerSize << std::endl;
-        std::cout << "Worker: " << workerAddress_ << std::endl;
         std::cout << "Fixed acknowledgement size: 512 bytes\n" << std::endl;
+
+        // Validate pattern requirements
+        if (!ValidatePattern()) {
+            return;
+        }
 
         std::vector<LatencyMeasurement> allMeasurements;
         int requestId = 1;
@@ -101,7 +115,7 @@ public:
         // Warmup phase
         std::cout << "Warmup phase..." << std::endl;
         for (int i = 0; i < 10; ++i) {
-            client_->RunBenchmark(requestId++, 1024);
+            RunPatternRequest(requestId++, 1024);
         }
         std::cout << "Warmup complete.\n" << std::endl;
 
@@ -114,7 +128,7 @@ public:
             int successCount = 0;
 
             for (int sample = 0; sample < samplesPerSize; ++sample) {
-                auto measurement = client_->RunBenchmark(requestId++, payloadSize);
+                auto measurement = RunPatternRequest(requestId++, payloadSize);
                 allMeasurements.push_back(measurement);
                 
                 if (measurement.success) {
@@ -145,41 +159,159 @@ public:
         
         std::cout << "\n=== Benchmark Complete ===" << std::endl;
         std::cout << "Total measurements: " << allMeasurements.size() << std::endl;
-        std::cout << "Results saved to benchmark_results.csv" << std::endl;
+        std::cout << "Results saved to csvfiles/benchmark_results_" << pattern_ << ".csv" << std::endl;
     }
 
 private:
+    std::string GetPatternDescription() {
+        if (pattern_ == "direct") {
+            return "head -> worker -> ack -> head";
+        } else if (pattern_ == "sequential") {
+            return "head -> worker1 -> ack -> head -> worker2 -> ack -> head";
+        } else if (pattern_ == "twohop") {
+            return "head -> worker1 -> worker2 -> ack -> head";
+        }
+        return "unknown pattern";
+    }
+
+    bool ValidatePattern() {
+        if (pattern_ == "direct" && clients_.size() < 1) {
+            std::cout << "Error: Direct pattern requires at least 1 worker!" << std::endl;
+            return false;
+        } else if (pattern_ == "sequential" && clients_.size() < 2) {
+            std::cout << "Error: Sequential pattern requires at least 2 workers!" << std::endl;
+            return false;
+        } else if (pattern_ == "twohop" && clients_.size() < 1) {
+            std::cout << "Error: Two-hop pattern requires at least 1 worker (with forwarding configured)!" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    LatencyMeasurement RunPatternRequest(int requestId, int payloadSize) {
+        if (pattern_ == "direct") {
+            return RunDirectRequest(requestId, payloadSize);
+        } else if (pattern_ == "sequential") {
+            return RunSequentialRequest(requestId, payloadSize);
+        } else if (pattern_ == "twohop") {
+            return RunTwoHopRequest(requestId, payloadSize);
+        }
+        
+        LatencyMeasurement failed;
+        failed.success = false;
+        failed.pattern = pattern_;
+        return failed;
+    }
+
+    LatencyMeasurement RunDirectRequest(int requestId, int payloadSize) {
+        auto measurement = clients_[0]->RunBenchmark(requestId, payloadSize);
+        
+        LatencyMeasurement result;
+        result.payloadSize = measurement.payloadSize;
+        result.latencyMs = measurement.latencyMs;
+        result.success = measurement.success;
+        result.requestTimestamp = measurement.requestTimestamp;
+        result.responseTimestamp = measurement.responseTimestamp;
+        result.pattern = "direct";
+        
+        return result;
+    }
+
+    LatencyMeasurement RunSequentialRequest(int requestId, int payloadSize) {
+        LatencyMeasurement result;
+        result.payloadSize = payloadSize;
+        result.pattern = "sequential";
+        result.success = false;
+
+        auto overallStart = std::chrono::high_resolution_clock::now();
+        result.requestTimestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            overallStart.time_since_epoch()).count();
+
+        // First worker request
+        auto measurement1 = clients_[0]->RunBenchmark(requestId, payloadSize);
+        if (!measurement1.success) {
+            auto overallEnd = std::chrono::high_resolution_clock::now();
+            result.latencyMs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                overallEnd - overallStart).count() / 1000000.0;
+            return result;
+        }
+
+        // Second worker request
+        auto measurement2 = clients_[1]->RunBenchmark(requestId + 1000000, payloadSize);
+        
+        auto overallEnd = std::chrono::high_resolution_clock::now();
+        result.latencyMs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            overallEnd - overallStart).count() / 1000000.0;
+        result.responseTimestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            overallEnd.time_since_epoch()).count();
+
+        result.success = measurement1.success && measurement2.success;
+        return result;
+    }
+
+    LatencyMeasurement RunTwoHopRequest(int requestId, int payloadSize) {
+        // For two-hop, we just send to the first worker, which forwards automatically
+        auto measurement = clients_[0]->RunBenchmark(requestId, payloadSize);
+        
+        LatencyMeasurement result;
+        result.payloadSize = measurement.payloadSize;
+        result.latencyMs = measurement.latencyMs;
+        result.success = measurement.success;
+        result.requestTimestamp = measurement.requestTimestamp;
+        result.responseTimestamp = measurement.responseTimestamp;
+        result.pattern = "twohop";
+        
+        return result;
+    }
+
     void SaveResults(const std::vector<LatencyMeasurement>& measurements) {
-        std::ofstream file("benchmark_results.csv");
-        file << "PayloadSize,LatencyMs,Success,RequestTimestamp,ResponseTimestamp\n";
+        // Create csvfiles directory if it doesn't exist
+        std::filesystem::create_directories("csvfiles");
+        
+        std::string filename = "csvfiles/benchmark_results_" + pattern_ + ".csv";
+        std::ofstream file(filename);
+        file << "PayloadSize,LatencyMs,Success,RequestTimestamp,ResponseTimestamp,Pattern\n";
         
         for (const auto& m : measurements) {
             file << m.payloadSize << "," 
                  << std::fixed << std::setprecision(6) << m.latencyMs << ","
                  << (m.success ? "1" : "0") << ","
                  << m.requestTimestamp << ","
-                 << m.responseTimestamp << "\n";
+                 << m.responseTimestamp << ","
+                 << m.pattern << "\n";
         }
         
         file.close();
     }
 
-    std::unique_ptr<BenchmarkClient> client_;
-    std::string workerAddress_;
+    std::vector<std::unique_ptr<BenchmarkClient>> clients_;
+    std::vector<std::string> workerAddresses_;
+    std::string pattern_;
 };
 
 int main(int argc, char** argv) {
-    std::string workerAddress = "localhost:50051";
+    std::string pattern = "direct";
+    std::vector<std::string> workerAddresses;
     int minSize = 16;
     int maxSize = 8192;
     int increment = 16;
     int samplesPerSize = 100;
-
+    
     // Parse command line arguments
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--worker" && i + 1 < argc) {
-            workerAddress = argv[++i];
+        if (arg == "--pattern" && i + 1 < argc) {
+            pattern = argv[++i];
+        } else if (arg == "--workers" && i + 1 < argc) {
+            // Parse comma-separated worker addresses
+            std::string workersStr = argv[++i];
+            std::stringstream ss(workersStr);
+            std::string address;
+            while (std::getline(ss, address, ',')) {
+                if (!address.empty()) {
+                    workerAddresses.push_back(address);
+                }
+            }
         } else if (arg == "--min-size" && i + 1 < argc) {
             minSize = std::stoi(argv[++i]);
         } else if (arg == "--max-size" && i + 1 < argc) {
@@ -191,29 +323,61 @@ int main(int argc, char** argv) {
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                       << "Options:\n"
-                      << "  --worker ADDRESS     Worker address (default: localhost:50051)\n"
-                      << "  --min-size SIZE      Minimum payload size in bytes (default: 16)\n"
-                      << "  --max-size SIZE      Maximum payload size in bytes (default: 8192)\n"
-                      << "  --increment SIZE     Payload size increment in bytes (default: 16)\n"
-                      << "  --samples COUNT      Number of samples per payload size (default: 100)\n"
-                      << "  --help               Show this help message\n";
+                      << "  --pattern <direct|sequential|twohop>  Communication pattern (default: direct)\n"
+                      << "  --workers <addr1,addr2,...>           Comma-separated worker addresses\n"
+                      << "  --min-size SIZE                       Minimum payload size in bytes (default: 16)\n"
+                      << "  --max-size SIZE                       Maximum payload size in bytes (default: 8192)\n"
+                      << "  --increment SIZE                      Payload size increment in bytes (default: 16)\n"
+                      << "  --samples COUNT                       Number of samples per payload size (default: 100)\n"
+                      << "  --help                                Show this help\n"
+                      << "\nPatterns:\n"
+                      << "  direct:     head -> worker -> ack -> head\n"
+                      << "  sequential: head -> worker1 -> ack -> head -> worker2 -> ack -> head\n"
+                      << "  twohop:     head -> worker1 -> worker2 -> ack -> head\n"
+                      << "\nExamples:\n"
+                      << "  Direct:     " << argv[0] << " --pattern direct --workers localhost:50051\n"
+                      << "  Sequential: " << argv[0] << " --pattern sequential --workers localhost:50051,localhost:50052\n"
+                      << "  Two-hop:    " << argv[0] << " --pattern twohop --workers localhost:50051\n"
+                      << std::endl;
             return 0;
         }
     }
-
-    std::cout << "Benchmark Head Node - Direct Worker Communication" << std::endl;
-    std::cout << "Configuration:" << std::endl;
-    std::cout << "  Worker: " << workerAddress << std::endl;
-    std::cout << "  Payload size range: " << minSize << " - " << maxSize << " bytes" << std::endl;
-    std::cout << "  Increment: " << increment << " bytes" << std::endl;
-    std::cout << "  Samples per size: " << samplesPerSize << std::endl;
-
-    BenchmarkHead head(workerAddress);
     
-    // Wait a moment for connection to establish
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Default worker if none provided
+    if (workerAddresses.empty()) {
+        workerAddresses.push_back("localhost:50051");
+    }
     
-    head.RunLatencyBenchmark(minSize, maxSize, increment, samplesPerSize);
+    // Validate pattern
+    if (pattern != "direct" && pattern != "sequential" && pattern != "twohop") {
+        std::cout << "Error: Invalid pattern. Must be 'direct', 'sequential', or 'twohop'" << std::endl;
+        return 1;
+    }
+    
+    std::cout << "Benchmark Head Node Starting..." << std::endl;
+    std::cout << "Pattern: " << pattern << std::endl;
+    std::cout << "Workers: ";
+    for (size_t i = 0; i < workerAddresses.size(); ++i) {
+        std::cout << workerAddresses[i];
+        if (i < workerAddresses.size() - 1) std::cout << ", ";
+    }
+    std::cout << std::endl;
+    std::cout << "Payload size range: " << minSize << " - " << maxSize << " bytes" << std::endl;
+    std::cout << "Increment: " << increment << " bytes" << std::endl;
+    std::cout << "Samples per size: " << samplesPerSize << std::endl;
 
-    return 0;
+    try {
+        BenchmarkHead head(workerAddresses, pattern);
+        
+        // Wait a moment for connections to establish
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        
+        head.RunLatencyBenchmark(minSize, maxSize, increment, samplesPerSize);
+        
+        std::cout << "\nBenchmark completed successfully!" << std::endl;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cout << "Error: " << e.what() << std::endl;
+        return 1;
+    }
 }
