@@ -1,20 +1,36 @@
 # Distributed System Demo
 
-A basic distributed system implementation using gRPC where a head node distributes work to multiple worker nodes.
+A comprehensive distributed system implementation and communication latency benchmark suite using gRPC.
 
-## Architecture
+## Components
 
+### 1. Basic Distributed System
 - **Head Node**: Distributes tasks to available worker nodes and collects results
 - **Worker Nodes**: Process incoming requests and return results
 - **Communication**: gRPC with Protocol Buffers
 
+### 2. Communication Latency Benchmark
+- **Baseline Experiment**: Direct worker communication latency analysis
+- **Variable Payload Sizes**: Configurable data sizes (16-byte increments)
+- **Fixed Acknowledgement**: 512-byte responses
+- **Comprehensive Analysis**: Statistical analysis and visualization tools
+
 ## Features
 
+### Distributed System
 - Multiple worker nodes running on different ports
 - Asynchronous task distribution from head node
 - Load balancing (round-robin) across workers
 - Timeout handling for requests
 - Dummy remote procedures with simulated processing time
+
+### Benchmark Suite
+- High-precision latency measurements (nanosecond resolution)
+- Configurable payload sizes and sample counts
+- Statistical analysis (mean, median, P95, P99)
+- Automated experiment runner
+- Data visualization and analysis tools
+- CSV export for custom analysis
 
 ## Prerequisites
 
@@ -45,9 +61,46 @@ make
 
 ## Running the System
 
-### Quick Demo
+### Original Distributed System Demo
 Run the automated demo script:
 ```bash
+./run_demo.sh
+```
+
+Or manually:
+```bash
+# Terminal 1-3: Start workers
+./build/workerNode 50051
+./build/workerNode 50052  
+./build/workerNode 50053
+
+# Terminal 4: Run head node
+./build/headNode
+```
+
+### Communication Latency Benchmark
+
+#### Quick Demo (30 seconds)
+```bash
+./quick_demo.sh
+```
+
+#### Full Benchmark (5-15 minutes)
+```bash
+./run_benchmark.sh
+```
+
+#### Custom Configuration
+```bash
+./run_benchmark.sh --min-size 32 --max-size 16384 --increment 32 --samples 200
+```
+
+#### Analysis
+```bash
+python3 analyze_results.py
+```
+
+For detailed benchmark documentation, see [`BENCHMARK_README.md`](BENCHMARK_README.md).
 ./run_demo.sh
 ```
 

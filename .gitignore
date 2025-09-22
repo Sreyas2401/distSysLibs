@@ -1,2 +1,5 @@
 .vscode
 build
+.venv
+benchmark_results.csv
+benchmark_plots

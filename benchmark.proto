@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package benchmark;
+
+service BenchmarkService {
+  rpc ProcessBenchmark (BenchmarkRequest) returns (BenchmarkResponse);
+}
+
+message BenchmarkRequest {
+  int32 requestId = 1;
+  bytes payload = 2;  // Variable size data payload
+  int64 timestamp = 3;
+}
+
+message BenchmarkResponse {
+  int32 requestId = 1;
+  bytes acknowledgement = 2;  // Fixed 512-byte acknowledgement
+  int64 requestTimestamp = 3; // Echo back the request timestamp
+  int64 responseTimestamp = 4;
+  bool success = 5;
+}
