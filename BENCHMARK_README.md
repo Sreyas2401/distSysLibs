@@ -51,6 +51,7 @@ head -> data -> worker -> ack -> head
    ```bash
    make benchmark-proto
    make all
+   pip install -r requirements.txt
    ```
 
 2. **Run the benchmark with default settings:**
@@ -87,7 +88,7 @@ head -> data -> worker -> ack -> head
 ## Configuration Options
 
 ### Benchmark Runner (`run_benchmark.sh`)
-- `--port PORT`: Worker port (default: 50051)
+- `--port PORT`: Worker port (default: 50052)
 - `--min-size SIZE`: Minimum payload size in bytes (default: 16)
 - `--max-size SIZE`: Maximum payload size in bytes (default: 8192)
 - `--increment SIZE`: Payload size increment in bytes (default: 16)
@@ -95,7 +96,7 @@ head -> data -> worker -> ack -> head
 - `--no-cleanup`: Don't stop worker process on exit
 
 ### Benchmark Head (`benchmarkHead`)
-- `--worker ADDRESS`: Worker address (default: localhost:50051)
+- `--worker ADDRESS`: Worker address (default: localhost:50052)
 - `--min-size SIZE`: Minimum payload size
 - `--max-size SIZE`: Maximum payload size
 - `--increment SIZE`: Payload size increment
@@ -195,10 +196,10 @@ The CSV output format enables custom analysis with any data analysis tool:
 Run components individually to isolate issues:
 ```bash
 # Start worker with verbose output
-./build/benchmarkWorker 50051
+./build/benchmarkWorker 50052
 
 # Run head with minimal configuration
-./build/benchmarkHead --worker localhost:50051 --samples 10
+./build/benchmarkHead --worker localhost:50052 --samples 10
 ```
 
 ## Performance Notes
