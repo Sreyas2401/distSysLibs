@@ -26,8 +26,6 @@ struct LatencyMeasurement {
     int payloadSize;
     double latencyMs;
     bool success;
-    int64_t requestTimestamp;
-    int64_t responseTimestamp;
     std::string pattern;  // Track which pattern was used
 };
 
@@ -44,6 +42,7 @@ public:
         std::string payload(payloadSize, 'X');
         request.set_payload(payload);
         
+        // Set timestamp (still used by protocol, just not stored in CSV)
         auto requestTime = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         request.set_timestamp(requestTime);
@@ -67,8 +66,6 @@ public:
         measurement.payloadSize = payloadSize;
         measurement.latencyMs = latencyMs;
         measurement.success = status.ok() && response.success();
-        measurement.requestTimestamp = requestTime;
-        measurement.responseTimestamp = response.responsetimestamp();
 
         if (!measurement.success) {
             std::cout << "Request " << requestId << " failed: " << status.error_message() << std::endl;
@@ -138,16 +135,8 @@ public:
             }
 
             if (!latencies.empty()) {
-                std::sort(latencies.begin(), latencies.end());
                 double mean = std::accumulate(latencies.begin(), latencies.end(), 0.0) / latencies.size();
-                double median = latencies[latencies.size() / 2];
-                double p95 = latencies[static_cast<size_t>(latencies.size() * 0.95)];
-                double p99 = latencies[static_cast<size_t>(latencies.size() * 0.99)];
-
                 std::cout << "Mean: " << std::fixed << std::setprecision(3) << mean << "ms, "
-                          << "Median: " << median << "ms, "
-                          << "P95: " << p95 << "ms, "
-                          << "P99: " << p99 << "ms, "
                           << "Success: " << successCount << "/" << samplesPerSize << std::endl;
             } else {
                 std::cout << "All requests failed!" << std::endl;
@@ -165,26 +154,29 @@ public:
 private:
     std::string GetPatternDescription() {
         if (pattern_ == "direct") {
-            return "head -> worker -> ack -> head";
+            return "head -> worker (round-robin across " + std::to_string(clients_.size()) + " workers)";
         } else if (pattern_ == "sequential") {
-            return "head -> worker1 -> ack -> head -> worker2 -> ack -> head";
+            return "head -> worker1 -> ack -> head -> worker2 -> ack -> head ... (" + std::to_string(clients_.size()) + " workers)";
         } else if (pattern_ == "twohop") {
-            return "head -> worker1 -> worker2 -> ack -> head";
+            return "head -> worker1 -> worker2 -> ... -> worker" + std::to_string(clients_.size()) + " -> ack -> head";
         }
         return "unknown pattern";
     }
 
     bool ValidatePattern() {
-        if (pattern_ == "direct" && clients_.size() < 1) {
-            std::cout << "Error: Direct pattern requires at least 1 worker!" << std::endl;
-            return false;
-        } else if (pattern_ == "sequential" && clients_.size() < 2) {
-            std::cout << "Error: Sequential pattern requires at least 2 workers!" << std::endl;
-            return false;
-        } else if (pattern_ == "twohop" && clients_.size() < 1) {
-            std::cout << "Error: Two-hop pattern requires at least 1 worker (with forwarding configured)!" << std::endl;
+        if (clients_.empty()) {
+            std::cout << "Error: No workers available!" << std::endl;
             return false;
         }
+        
+        if (pattern_ == "direct") {
+            std::cout << "Direct pattern: Using " << clients_.size() << " worker(s) in round-robin" << std::endl;
+        } else if (pattern_ == "sequential") {
+            std::cout << "Sequential pattern: Contacting all " << clients_.size() << " worker(s) in sequence" << std::endl;
+        } else if (pattern_ == "twohop") {
+            std::cout << "Two-hop pattern: Using " << clients_.size() << "-worker forwarding chain" << std::endl;
+        }
+        
         return true;
     }
 
@@ -204,14 +196,14 @@ private:
     }
 
     LatencyMeasurement RunDirectRequest(int requestId, int payloadSize) {
-        auto measurement = clients_[0]->RunBenchmark(requestId, payloadSize);
+        // Round-robin across all available workers
+        int workerIndex = (requestId - 1) % clients_.size();
+        auto measurement = clients_[workerIndex]->RunBenchmark(requestId, payloadSize);
         
         LatencyMeasurement result;
         result.payloadSize = measurement.payloadSize;
         result.latencyMs = measurement.latencyMs;
         result.success = measurement.success;
-        result.requestTimestamp = measurement.requestTimestamp;
-        result.responseTimestamp = measurement.responseTimestamp;
         result.pattern = "direct";
         
         return result;
@@ -221,31 +213,23 @@ private:
         LatencyMeasurement result;
         result.payloadSize = payloadSize;
         result.pattern = "sequential";
-        result.success = false;
+        result.success = true;  // Start optimistic
 
         auto overallStart = std::chrono::high_resolution_clock::now();
-        result.requestTimestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-            overallStart.time_since_epoch()).count();
 
-        // First worker request
-        auto measurement1 = clients_[0]->RunBenchmark(requestId, payloadSize);
-        if (!measurement1.success) {
-            auto overallEnd = std::chrono::high_resolution_clock::now();
-            result.latencyMs = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                overallEnd - overallStart).count() / 1000000.0;
-            return result;
+        // Send requests to ALL workers sequentially
+        for (size_t i = 0; i < clients_.size(); ++i) {
+            auto measurement = clients_[i]->RunBenchmark(requestId + i * 1000000, payloadSize);
+            if (!measurement.success) {
+                result.success = false;
+                // Continue to other workers even if one fails
+            }
         }
-
-        // Second worker request
-        auto measurement2 = clients_[1]->RunBenchmark(requestId + 1000000, payloadSize);
         
         auto overallEnd = std::chrono::high_resolution_clock::now();
         result.latencyMs = std::chrono::duration_cast<std::chrono::nanoseconds>(
             overallEnd - overallStart).count() / 1000000.0;
-        result.responseTimestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-            overallEnd.time_since_epoch()).count();
 
-        result.success = measurement1.success && measurement2.success;
         return result;
     }
 
@@ -257,8 +241,6 @@ private:
         result.payloadSize = measurement.payloadSize;
         result.latencyMs = measurement.latencyMs;
         result.success = measurement.success;
-        result.requestTimestamp = measurement.requestTimestamp;
-        result.responseTimestamp = measurement.responseTimestamp;
         result.pattern = "twohop";
         
         return result;
@@ -270,14 +252,12 @@ private:
         
         std::string filename = "csvfiles/benchmark_results_" + pattern_ + ".csv";
         std::ofstream file(filename);
-        file << "PayloadSize,LatencyMs,Success,RequestTimestamp,ResponseTimestamp,Pattern\n";
+        file << "PayloadSize,LatencyMs,Success,Pattern\n";
         
         for (const auto& m : measurements) {
             file << m.payloadSize << "," 
                  << std::fixed << std::setprecision(6) << m.latencyMs << ","
                  << (m.success ? "1" : "0") << ","
-                 << m.requestTimestamp << ","
-                 << m.responseTimestamp << ","
                  << m.pattern << "\n";
         }
         
