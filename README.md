@@ -1,56 +1,182 @@
-# Distributed System Demo
+# Distributed Systems Communication Latency Benchmark
 
-A comprehensive distributed system implementation and communication latency benchmark suite using gRPC.
+A comprehensive distributed system implementation and communication latency benchmark suite using gRPC, designed for distributed systems research and performance analysis.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Project Structure](#project-structure)
+- [Quick Start](#quick-start)
+- [Components](#components)
+- [Building](#building)
+- [Usage](#usage)
+- [SLURM Cluster Usage](#slurm-cluster-usage)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+
+## Overview
+
+This project provides two main components:
+
+1. **Unified Communication Latency Benchmark**: Measures and compares latency across three communication patterns:
+   - **Direct**: `head → worker → ack → head`
+   - **Sequential**: `head → worker1 → ack → head → worker2 → ack → head`  
+   - **Two-hop**: `head → worker1 → worker2 → ack → head`
+
+2. **Basic Distributed System Demo**: Simple task distribution system for educational purposes
+
+## Project Structure
+
+```
+distSysLibs/
+├── README.md                    # This file
+├── docs/                       # Detailed documentation
+│   ├── BUILDING.md                 # Build instructions
+│   ├── CLUSTER_USAGE.md            # SLURM cluster guide
+│   ├── DEMO_USAGE.md               # Demo system guide
+│   └── BENCHMARK_USAGE.md          # Benchmark guide
+├── scripts/                    # Job submission scripts
+│   ├── submit_benchmark.sh         # Main submission script
+│   ├── job_*.sh                   # Individual job scripts
+│   └── run_*.sh                   # Execution scripts
+├── src/                        # Source code
+│   ├── benchmark*.cpp             # Benchmark components
+│   ├── headNode.cpp               # Demo head node
+│   ├── workerNode.cpp             # Demo worker
+│   └── *.proto                    # Protocol definitions
+├── analysis/                   # Analysis tools
+│   └── simple_analyze.py          # Results analysis
+├── CMakeLists.txt
+├── Makefile
+└── build/                      # Build artifacts
+
+```
+
+## Quick Start
+
+### Prerequisites
+
+- **C++17** compatible compiler (g++ 7.0+)
+- **CMake** 3.10+
+- **gRPC** and **Protocol Buffers** (system-installed or via package manager)
+- **Python 3** (for analysis scripts)
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/Sreyas2401/distSysLibs.git
+   cd distSysLibs
+   ```
+
+2. **Build the project:**
+   ```bash
+   make unified_benchmark    # Build benchmark components
+   make demo                # Build demo components  
+   ```
+
+3. **Run a quick test:**
+   ```bash
+   make run_direct          # Test direct pattern
+   ```
 
 ## Components
 
-### 1. Basic Distributed System
-- **Head Node**: Distributes tasks to available worker nodes and collects results
-- **Worker Nodes**: Process incoming requests and return results
-- **Communication**: gRPC with Protocol Buffers
+### Unified Benchmark Infrastructure
+- **`benchmarkHead.cpp`**: Unified head node supporting all communication patterns
+- **`benchmarkWorker.cpp`**: Enhanced worker node with optional forwarding capability
+- **`benchmark.proto`**: Protocol definition for variable payloads and fixed acknowledgments
 
-### 2. Communication Latency Benchmark
-- **Baseline Experiment**: Direct worker communication latency analysis
-- **Variable Payload Sizes**: Configurable data sizes (16-byte increments)
-- **Fixed Acknowledgement**: 512-byte responses
-- **Comprehensive Analysis**: Statistical analysis and visualization tools
-
-## Features
-
-### Distributed System
-- Multiple worker nodes running on different ports
-- Asynchronous task distribution from head node
-- Load balancing (round-robin) across workers
-- Timeout handling for requests
-- Dummy remote procedures with simulated processing time
-
-### Benchmark Suite
-- High-precision latency measurements (nanosecond resolution)
-- Configurable payload sizes and sample counts
-- Statistical analysis (mean, median, P95, P99)
-- Automated experiment runner
-- Data visualization and analysis tools
-- CSV export for custom analysis
-
-## Prerequisites
-
-Make sure you have the following installed:
-- g++ with C++17 support
-- gRPC and Protocol Buffers libraries
-- protoc compiler
-- grpc_cpp_plugin
-
-On macOS with Homebrew:
-```bash
-brew install grpc protobuf
-```
+### Demo System (Educational)
+- **`headNode.cpp`**: Simple task distribution head node
+- **`workerNode.cpp`**: Basic worker node for task processing
+- **`demo.proto`**: Protocol definition for demo tasks
 
 ## Building
 
-### Option 1: Using Makefile (Recommended)
+The project supports both **Makefile** and **CMake** build systems:
+
+### Using Makefile (Recommended)
 ```bash
+# Build everything
+make all
+
+# Build specific components
+make unified_benchmark      # Benchmark system
+make demo                  # Demo system
+make benchmark-proto       # Generate benchmark protobuf files
+make proto                 # Generate demo protobuf files
+```
+
+### Using CMake
+```bash
+mkdir build && cd build
+cmake ..
 make
 ```
+
+For detailed build instructions, see [📄 docs/BUILDING.md](docs/BUILDING.md)
+
+## Usage
+
+### Benchmark System
+
+#### Interactive Usage
+```bash
+# Individual patterns
+make run_direct            # Direct pattern
+make run_sequential        # Sequential pattern
+make run_twohop           # Two-hop pattern
+make run_unified          # All patterns
+
+# Analysis
+make analyze              # Generate comparison plots
+```
+
+#### Manual Usage
+```bash
+# Start workers
+./build/benchmarkWorker --port 50060 &
+./build/benchmarkWorker --port 50061 &
+
+# Run benchmark
+./build/benchmarkHead --pattern direct --workers localhost:50060 --samples 100
+```
+
+### Demo System
+```bash
+# Automated demo
+./run_demo.sh
+
+# Manual demo
+./build/workerNode 50051 &
+./build/headNode localhost:50051
+```
+
+For detailed usage instructions, see:
+- [docs/BENCHMARK_USAGE.md](docs/BENCHMARK_USAGE.md)
+- [docs/DEMO_USAGE.md](docs/DEMO_USAGE.md)
+
+## SLURM Cluster Usage
+
+### Quick Submission
+```bash
+# Submit individual jobs
+./scripts/submit_benchmark.sh direct
+./scripts/submit_benchmark.sh unified
+
+# Check status
+./scripts/submit_benchmark.sh --status
+```
+
+### Makefile Shortcuts
+```bash
+make submit-direct         # Submit direct pattern job
+make submit-unified        # Submit all patterns job
+make job-status           # Check job status
+```
+
+For detailed cluster usage, see [docs/CLUSTER_USAGE.md](docs/CLUSTER_USAGE.md)
 
 ### Option 2: Using CMake
 ```bash
@@ -64,7 +190,7 @@ make
 ### Original Distributed System Demo
 Run the automated demo script:
 ```bash
-./run_demo.sh
+./scripts/run_demo.sh
 ```
 
 Or manually:

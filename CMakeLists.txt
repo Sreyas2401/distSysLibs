@@ -33,7 +33,7 @@ set(BENCHMARK_PROTO_SRCS
 
 # Demo executables (original)
 add_executable(headNode
-    headNode.cpp
+    src/headNode.cpp
     ${DEMO_PROTO_SRCS}
 )
 
@@ -44,7 +44,7 @@ target_link_libraries(headNode
 )
 
 add_executable(workerNode
-    workerNode.cpp
+    src/workerNode.cpp
     ${DEMO_PROTO_SRCS}
 )
 
@@ -56,7 +56,7 @@ target_link_libraries(workerNode
 
 # Benchmark executables (unified infrastructure)
 add_executable(benchmarkHead
-    benchmarkHead.cpp
+    src/benchmarkHead.cpp
     ${BENCHMARK_PROTO_SRCS}
 )
 
@@ -67,7 +67,7 @@ target_link_libraries(benchmarkHead
 )
 
 add_executable(benchmarkWorker
-    benchmarkWorker.cpp
+    src/benchmarkWorker.cpp
     ${BENCHMARK_PROTO_SRCS}
 )
 

@@ -52,13 +52,13 @@ clean:
 	cd build && make clean || true
 	rm -rf build/CMakeFiles build/CMakeCache.txt build/_deps
 
-proto: demo.proto
-	protoc --cpp_out=build demo.proto
-	protoc --grpc_out=build --plugin=protoc-gen-grpc=$$(which grpc_cpp_plugin) demo.proto
+proto: src/demo.proto
+	protoc --cpp_out=build src/demo.proto
+	protoc --grpc_out=build --plugin=protoc-gen-grpc=$$(which grpc_cpp_plugin) src/demo.proto
 
-benchmark-proto: benchmark.proto
-	protoc --cpp_out=build benchmark.proto
-	protoc --grpc_out=build --plugin=protoc-gen-grpc=$$(which grpc_cpp_plugin) benchmark.proto
+benchmark-proto: src/benchmark.proto
+	protoc --cpp_out=build src/benchmark.proto
+	protoc --grpc_out=build --plugin=protoc-gen-grpc=$$(which grpc_cpp_plugin) src/benchmark.proto
 
 # Convenient targets for unified benchmark
 benchmark_head: cmake_benchmark
@@ -68,37 +68,37 @@ benchmark_worker: cmake_benchmark
 unified_benchmark: cmake_benchmark
 
 run_unified: unified_benchmark
-	./run_unified_benchmark.sh all 20
+	./scripts/run_unified_benchmark.sh all 20
 
 run_direct: unified_benchmark
-	./run_unified_benchmark.sh direct 50
+	./scripts/run_unified_benchmark.sh direct 50
 
 run_sequential: unified_benchmark
-	./run_unified_benchmark.sh sequential 50
+	./scripts/run_unified_benchmark.sh sequential 50
 
 run_twohop: unified_benchmark
-	./run_unified_benchmark.sh twohop 50
+	./scripts/run_unified_benchmark.sh twohop 50
 
 analyze: 
-	python3 simple_analyze.py
+	python3 analysis/simple_analyze.py
 
 # SLURM batch job shortcuts
 submit-direct:
-	./submit_benchmark.sh direct
+	./scripts/submit_benchmark.sh direct
 
 submit-sequential:
-	./submit_benchmark.sh sequential
+	./scripts/submit_benchmark.sh sequential
 
 submit-twohop:
-	./submit_benchmark.sh twohop
+	./scripts/submit_benchmark.sh twohop
 
 submit-unified:
-	./submit_benchmark.sh unified
+	./scripts/submit_benchmark.sh unified
 
 submit-large:
-	./submit_benchmark.sh large
+	./scripts/submit_benchmark.sh large
 
 job-status:
-	./submit_benchmark.sh --status
+	./scripts/submit_benchmark.sh --status
 
 .PHONY: all clean proto benchmark-proto benchmark_head benchmark_worker unified_benchmark run_unified run_direct run_sequential run_twohop analyze submit-direct submit-sequential submit-twohop submit-unified submit-large job-status
