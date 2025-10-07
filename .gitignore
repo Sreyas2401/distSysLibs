@@ -6,3 +6,4 @@ benchmark_plots
 *.csv
 __pycache__
 .gitignore
+benchmark_*

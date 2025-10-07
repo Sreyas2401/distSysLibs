@@ -4,52 +4,75 @@ project(DistributedSystem)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find required packages
-find_package(Protobuf REQUIRED)
+# Find required packages using the system versions
 find_package(PkgConfig REQUIRED)
+find_package(Protobuf REQUIRED)
+
+# Use pkg-config to find gRPC
 pkg_check_modules(GRPC REQUIRED grpc++)
 
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/build)
 include_directories(${Protobuf_INCLUDE_DIRS})
 
-# Generated protobuf and gRPC files
-set(PROTO_SRCS
+# Add gRPC include directories from pkg-config
+include_directories(${GRPC_INCLUDE_DIRS})
+
+# Generated protobuf and gRPC files for demo
+set(DEMO_PROTO_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/build/demo.pb.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/build/demo.grpc.pb.cc
 )
 
-set(PROTO_HDRS
-    ${CMAKE_CURRENT_SOURCE_DIR}/build/demo.pb.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/build/demo.grpc.pb.h
+# Generated protobuf and gRPC files for benchmark  
+set(BENCHMARK_PROTO_SRCS
+    ${CMAKE_CURRENT_SOURCE_DIR}/build/benchmark.pb.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/build/benchmark.grpc.pb.cc
 )
 
-# Worker node executable
-add_executable(build/workerNode
-    workerNode.cpp
-    ${PROTO_SRCS}
+# Demo executables (original)
+add_executable(headNode
+    headNode.cpp
+    ${DEMO_PROTO_SRCS}
 )
 
-target_link_libraries(build/workerNode
+target_link_libraries(headNode
     ${Protobuf_LIBRARIES}
     ${GRPC_LIBRARIES}
-    grpc++
-    grpc
-    protobuf
     pthread
 )
 
-# Head node executable
-add_executable(build/headNode
-    headNode.cpp
-    ${PROTO_SRCS}
+add_executable(workerNode
+    workerNode.cpp
+    ${DEMO_PROTO_SRCS}
 )
 
-target_link_libraries(build/headNode
+target_link_libraries(workerNode
     ${Protobuf_LIBRARIES}
     ${GRPC_LIBRARIES}
-    grpc++
-    grpc
-    protobuf
+    pthread
+)
+
+# Benchmark executables (unified infrastructure)
+add_executable(benchmarkHead
+    benchmarkHead.cpp
+    ${BENCHMARK_PROTO_SRCS}
+)
+
+target_link_libraries(benchmarkHead
+    ${Protobuf_LIBRARIES}
+    ${GRPC_LIBRARIES}
+    pthread
+)
+
+add_executable(benchmarkWorker
+    benchmarkWorker.cpp
+    ${BENCHMARK_PROTO_SRCS}
+)
+
+target_link_libraries(benchmarkWorker
+    ${Protobuf_LIBRARIES}
+    ${GRPC_LIBRARIES}
     pthread
 )

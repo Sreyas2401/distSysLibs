@@ -13,10 +13,10 @@ PROTO_OBJS = $(PROTO_SRCS:.cc=.o)
 BENCHMARK_PROTO_SRCS = build/benchmark.pb.cc build/benchmark.grpc.pb.cc
 BENCHMARK_PROTO_OBJS = $(BENCHMARK_PROTO_SRCS:.cc=.o)
 
-# Main targets - unified benchmark infrastructure
-all: build/benchmarkHead build/benchmarkWorker
+# Main targets - unified benchmark infrastructure (using CMAKE)
+all: cmake_benchmark
 
-# Demo targets (original components)
+# Demo targets (original components - using direct compilation)
 demo: build/headNode build/workerNode
 
 build/headNode: build/headNode.o $(PROTO_OBJS)
@@ -25,7 +25,12 @@ build/headNode: build/headNode.o $(PROTO_OBJS)
 build/workerNode: build/workerNode.o $(PROTO_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
 
-# Unified benchmark targets
+# CMake-based benchmark targets
+cmake_benchmark: build/benchmark.pb.cc build/benchmark.grpc.pb.cc
+	mkdir -p build
+	cd build && cmake .. && make benchmarkHead benchmarkWorker
+
+# Legacy direct compilation targets (kept for fallback)
 build/benchmarkHead: build/benchmarkHead.o $(BENCHMARK_PROTO_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
 
@@ -42,7 +47,10 @@ build/%.o: %.cc
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	rm -f build/*.o build/headNode build/workerNode build/benchmarkHead build/benchmarkWorker benchmark_results*.csv
+	rm -f build/*.o build/headNode build/workerNode benchmark_results*.csv
+	rm -f build/benchmarkHead build/benchmarkWorker 
+	cd build && make clean || true
+	rm -rf build/CMakeFiles build/CMakeCache.txt build/_deps
 
 proto: demo.proto
 	protoc --cpp_out=build demo.proto
@@ -53,11 +61,11 @@ benchmark-proto: benchmark.proto
 	protoc --grpc_out=build --plugin=protoc-gen-grpc=$$(which grpc_cpp_plugin) benchmark.proto
 
 # Convenient targets for unified benchmark
-benchmark_head: build/benchmarkHead
+benchmark_head: cmake_benchmark
 
-benchmark_worker: build/benchmarkWorker
+benchmark_worker: cmake_benchmark
 
-unified_benchmark: build/benchmarkHead build/benchmarkWorker
+unified_benchmark: cmake_benchmark
 
 run_unified: unified_benchmark
 	./run_unified_benchmark.sh all 20
@@ -74,4 +82,23 @@ run_twohop: unified_benchmark
 analyze: 
 	python3 simple_analyze.py
 
-.PHONY: all clean proto benchmark-proto benchmark_head benchmark_worker unified_benchmark run_unified run_direct run_sequential run_twohop analyze
+# SLURM batch job shortcuts
+submit-direct:
+	./submit_benchmark.sh direct
+
+submit-sequential:
+	./submit_benchmark.sh sequential
+
+submit-twohop:
+	./submit_benchmark.sh twohop
+
+submit-unified:
+	./submit_benchmark.sh unified
+
+submit-large:
+	./submit_benchmark.sh large
+
+job-status:
+	./submit_benchmark.sh --status
+
+.PHONY: all clean proto benchmark-proto benchmark_head benchmark_worker unified_benchmark run_unified run_direct run_sequential run_twohop analyze submit-direct submit-sequential submit-twohop submit-unified submit-large job-status
