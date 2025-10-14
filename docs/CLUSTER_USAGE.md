@@ -42,6 +42,7 @@ make job-status
 | `job_twohop.sh` | Two-hop pattern only | ~30min | 1 CPU, 1GB RAM |
 | `run_benchmark_job.sh` | All patterns (medium) | ~1hr | 1 CPU, 2GB RAM |
 | `job_large_benchmark.sh` | Comprehensive analysis | ~2hr | 1 CPU, 2GB RAM |
+| `run_distributed_benchmark.sh` | Multi-node head + workers | ~1hr | 3 nodes, 1 CPU/node |
 
 ## Job Configuration
 
@@ -113,3 +114,42 @@ scancel -u $USER
 # Job dependencies (run job B after job A completes)
 sbatch --dependency=afterok:<job_A_id> job_sequential.sh
 ```
+
+## Multi-node Distributed Runs
+
+The benchmark binaries communicate over gRPC, so the head and workers can run on separate compute nodes. The `scripts/run_distributed_benchmark.sh` submission script automates this setup:
+
+1. Requests multiple nodes in a single job (default `#SBATCH --nodes=3`).
+2. Uses `SLURM_NODELIST` to discover the allocated hostnames and launches one worker per node with `srun`.
+3. Starts the benchmark head after the workers are ready and wires the correct `--workers host:port` list automatically.
+
+### Usage
+
+```bash
+sbatch scripts/run_distributed_benchmark.sh
+sbatch --nodes=4 --export=PATTERN=sequential,SAMPLES=50 scripts/run_distributed_benchmark.sh
+```
+
+The script honours the following environment overrides (pass via `--export`):
+
+- `PATTERN` – `direct`, `sequential`, or `twohop`
+- `MIN_SIZE`, `MAX_SIZE`, `INCREMENT` – payload sweep configuration
+- `SAMPLES` – samples per payload size
+- `WORKER_PORT`, `FORWARD_PORT` – gRPC listener ports
+- `HEAD_START_DELAY` – seconds to wait before starting the head node
+
+### Inspecting Node Assignments
+
+SLURM exposes the allocated hostnames via `SLURM_NODELIST`. Expand the list inside your job with:
+
+```bash
+scontrol show hostnames "$SLURM_NODELIST"
+```
+
+These hostnames (e.g., `swarm042`) are resolvable within the cluster, so you can reference workers as `swarm042:50060` without needing raw IP addresses.
+
+### Custom Tweaks
+
+- Increase `#SBATCH --nodes` to add more worker nodes. The script launches one worker per extra node.
+- Two-hop runs automatically forward the primary worker to the secondary via `--forward-to`.
+- For manual experiments, allocate nodes interactively via `salloc --nodes=3 --ntasks-per-node=1` and run the script with `bash` once inside the allocation.
