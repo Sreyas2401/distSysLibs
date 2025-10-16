@@ -28,6 +28,12 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
 export MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
 export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
 
+SHELL_BIN=$(command -v bash || command -v sh)
+if [[ -z "${SHELL_BIN}" ]]; then
+    echo "Error: Unable to locate a usable shell (bash or sh)." >&2
+    exit 1
+fi
+
 cleanup_done=0
 worker_nodes=()
 active_worker_nodes=()
@@ -42,7 +48,7 @@ cleanup() {
         echo "Stopping worker processes..."
         for node in "${active_worker_nodes[@]}"; do
             srun --nodes=1 --ntasks=1 --exclusive -w "${node}" \
-                bash -c "pkill -f benchmarkWorker || true" >/dev/null 2>&1 || true
+                "${SHELL_BIN}" -lc "pkill -f benchmarkWorker || true" >/dev/null 2>&1 || true
         done
     fi
 
@@ -103,6 +109,7 @@ echo "Pattern: ${PATTERN}"
 declare -a worker_addresses=()
 primary_node=""
 secondary_node=""
+mkdir -p logs
 
 launch_worker() {
     local node=$1
@@ -111,8 +118,10 @@ launch_worker() {
 
     echo "Starting worker on ${node}:${port} ${forward_target:+(forward -> ${forward_target})}" >&2
     active_worker_nodes+=("${node}")
+    # Use resolved shell binary and exec the worker so the srun step is the worker process.
     srun --nodes=1 --ntasks=1 --exclusive -w "${node}" \
-        bash -c "cd '${PROJECT_ROOT}'; ./build/benchmarkWorker --port ${port} ${forward_target}" &
+        "${SHELL_BIN}" -lc "cd '${PROJECT_ROOT}'; exec ./build/benchmarkWorker --port ${port} ${forward_target}" \
+        > "logs/worker-${node}.out" 2> "logs/worker-${node}.err" &
 }
 
 case "${PATTERN}" in
@@ -143,8 +152,8 @@ sleep "${HEAD_START_DELAY}"
 workers_arg=$(IFS=, ; echo "${worker_addresses[*]}")
 
 head_command=(
-    bash -c "cd '${PROJECT_ROOT}'; \
-    ./build/benchmarkHead --pattern ${PATTERN} --workers '${workers_arg}' \
+    "${SHELL_BIN}" -lc "cd '${PROJECT_ROOT}'; \
+    exec ./build/benchmarkHead --pattern ${PATTERN} --workers '${workers_arg}' \
         --min-size ${MIN_SIZE} --max-size ${MAX_SIZE} \
         --increment ${INCREMENT} --samples ${SAMPLES}"
 )

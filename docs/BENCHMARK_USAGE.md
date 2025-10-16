@@ -209,3 +209,31 @@ esac
 # Cleanup
 kill $WORKER_PIDS 2>/dev/null
 ```
+
+## Running distributed jobs on SLURM
+
+If you want to run the head and workers on separate compute nodes (recommended for true distributed measurements on the Swarm cluster), use the `scripts/run_distributed_benchmark.sh` SLURM helper. The script:
+
+- Allocates multiple nodes via SBATCH (`#SBATCH --nodes` in the script or passed to `sbatch`).
+- Launches one worker process per allocated worker node using `srun`.
+- Starts the benchmark head on the primary allocated node and passes the correct `--workers host:port` list.
+
+Important details:
+
+- The script defaults to the `direct` pattern unless you override `PATTERN`.
+- To change patterns, pass environment variables when submitting the job with `sbatch` using the `--export` flag (or export them inside your environment).
+
+Examples:
+
+```bash
+# Default (direct)
+sbatch scripts/run_distributed_benchmark.sh
+
+# Sequential pattern
+sbatch --nodes=3 --export=PATTERN=sequential,SAMPLES=100 scripts/run_distributed_benchmark.sh
+
+# Two-hop pattern
+sbatch --nodes=3 --export=PATTERN=twohop,SAMPLES=100 scripts/run_distributed_benchmark.sh
+```
+
+If you prefer interactive debugging, allocate nodes with `salloc --nodes=3 --ntasks-per-node=1` and then run the same `srun` commands from the script manually so you can observe logs and processes.
