@@ -10,6 +10,7 @@
 #include <numeric>
 #include <sstream>
 #include <filesystem>
+#include <mutex>
 
 #include <grpcpp/grpcpp.h>
 #include "build/benchmark.pb.h"
@@ -154,7 +155,7 @@ public:
 private:
     std::string GetPatternDescription() {
         if (pattern_ == "direct") {
-            return "head -> worker (round-robin across " + std::to_string(clients_.size()) + " workers)";
+            return "head -> broadcast to all " + std::to_string(clients_.size()) + " worker(s) and wait";
         } else if (pattern_ == "sequential") {
             return "head -> worker1 -> ack -> head -> worker2 -> ack -> head ... (" + std::to_string(clients_.size()) + " workers)";
         } else if (pattern_ == "twohop") {
@@ -170,7 +171,7 @@ private:
         }
         
         if (pattern_ == "direct") {
-            std::cout << "Direct pattern: Using " << clients_.size() << " worker(s) in round-robin" << std::endl;
+            std::cout << "Direct pattern: Broadcasting to all " << clients_.size() << " worker(s) in parallel" << std::endl;
         } else if (pattern_ == "sequential") {
             std::cout << "Sequential pattern: Contacting all " << clients_.size() << " worker(s) in sequence" << std::endl;
         } else if (pattern_ == "twohop") {
@@ -196,16 +197,49 @@ private:
     }
 
     LatencyMeasurement RunDirectRequest(int requestId, int payloadSize) {
-        // Round-robin across all available workers
-        int workerIndex = (requestId - 1) % clients_.size();
-        auto measurement = clients_[workerIndex]->RunBenchmark(requestId, payloadSize);
-        
         LatencyMeasurement result;
-        result.payloadSize = measurement.payloadSize;
-        result.latencyMs = measurement.latencyMs;
-        result.success = measurement.success;
+        result.payloadSize = payloadSize;
         result.pattern = "direct";
-        
+        result.success = true;
+
+        if (clients_.empty()) {
+            result.success = false;
+            result.latencyMs = 0.0;
+            return result;
+        }
+
+        auto overallStart = std::chrono::high_resolution_clock::now();
+
+        std::vector<LatencyMeasurement> workerMeasurements(clients_.size());
+        std::vector<std::thread> workers;
+        workers.reserve(clients_.size());
+
+        for (size_t i = 0; i < clients_.size(); ++i) {
+            int workerRequestId = requestId + static_cast<int>(i) * 1000000;
+            workers.emplace_back([this, i, workerRequestId, payloadSize, &workerMeasurements]() {
+                workerMeasurements[i] = clients_[i]->RunBenchmark(workerRequestId, payloadSize);
+            });
+        }
+
+        for (auto& worker : workers) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+
+        auto overallEnd = std::chrono::high_resolution_clock::now();
+        result.latencyMs = std::chrono::duration_cast<std::chrono::nanoseconds>(overallEnd - overallStart).count() / 1000000.0;
+
+        for (const auto& measurement : workerMeasurements) {
+            if (!measurement.success) {
+                result.success = false;
+            }
+        }
+
+        if (!result.success) {
+            std::cout << "Direct broadcast request " << requestId << " encountered worker failures" << std::endl;
+        }
+
         return result;
     }
 

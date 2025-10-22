@@ -237,3 +237,9 @@ sbatch --nodes=3 --export=PATTERN=twohop,SAMPLES=100 scripts/run_distributed_ben
 ```
 
 If you prefer interactive debugging, allocate nodes with `salloc --nodes=3 --ntasks-per-node=1` and then run the same `srun` commands from the script manually so you can observe logs and processes.
+
+### Running parameter sweeps
+
+There is a helper script `scripts/submit_sweep.sh` that will submit jobs sweeping the number of workers (N) for `direct` and `sequential` patterns and collect results under `results_sweep/`.
+
+After the sweep completes you can run `python3 analysis/plot_sweep_results.py --results-dir results_sweep --out-dir analysis/plots` to generate p50/p95 plots for a few payload sizes.

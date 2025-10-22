@@ -7,3 +7,5 @@ benchmark_plots
 __pycache__
 .gitignore
 benchmark_*
+analysis/plots
+results_sweep

@@ -51,6 +51,10 @@ clean:
 	rm -f build/benchmarkHead build/benchmarkWorker 
 	cd build && make clean || true
 	rm -rf build/CMakeFiles build/CMakeCache.txt build/_deps
+	rm -rf logs/ *.log csvfiles/*.log
+	rm -f benchmark_distribution_*
+	rm -rf results_sweep/
+	mkdir results_sweep
 
 proto: src/demo.proto
 	protoc --cpp_out=build src/demo.proto
